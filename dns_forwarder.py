@@ -1,20 +1,50 @@
 #!/usr/bin/env python3
 import argparse
-import scapy
+from multiprocessing import Semaphore
+from scapy.all import DNS
 import re
 import socket
 import ipaddress
+from threading import *
 
 # globals
 enable_DoH = False
 deny_list_file = "NOT SPECIFIED"
 log_file = "NOT SPECIFIED"
 dns_server = "8.8.8.8"
+query_list = list()
+
+# producer consumer synchronization
+sem_empty = Semaphore(10)
+sem_full = Semaphore(0)
+mutex = Lock()
+
+# main socket mutex for syncronization
+sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
 # query class that holds information for each query.
 class Query:
-    def __init__(self):
-        print("NOT IMPLEMENTED")
+    def __init__(self, address, message):
+        self.client_addr = address      #store client info
+        self.client_message = message   # store the client message
+        self.response = ""      # store string of the response
+        print("Query Created. CLient Info: " + str(self.client_addr))
+
+    # parses and checks udp packet, returns the reply contents if successful
+    def udp_style(self):
+        # use message to create the dns object
+        packet = DNS(self.client_message)
+        
+        #for now, lets just send the packet
+        query_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        query_sock.sendto(self.client_message, (dns_server, 53))
+
+        # revieve the repoy and send it to the client
+        msgFromServer, addr = query_sock.recvfrom(4096)
+        packet = DNS(msgFromServer)
+        return msgFromServer
+
+
 
 # sets up parser and parses options
 # makes sure the prefix is specified
@@ -67,21 +97,47 @@ def setParams():
 
 # listener that listens for traffic
 def listener():
-    # bind socket
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    sock.bind(("0.0.0.0", 53))
-    
+    global query_list
+
     while True:
         data, addr = sock.recvfrom(4096)
-        print(data)
-        print("======================================")
-        print(addr)
+
+        sem_empty.acquire()
+        mutex.acquire()
+
+        query_list.append(Query(addr, data))
+
+        mutex.release()
+        sem_full.release()
+        
 
 
 # consumer function that will perform all queries on behalf of the client
 def consumer():
-    print("NOT IMPLEMENTED")
+    while True:
+        # get a query to fill
+        sem_full.acquire()
+        mutex.acquire()
+        curr_query = query_list.pop(0)
+        mutex.release()
+        sem_empty.release()
+
+        # now, we will fulfill this query
+        if enable_DoH:
+            print("DOH NOT IMPLEMENTED")
+        else:
+            query_reply = curr_query.udp_style()
+            sock.sendto(query_reply, curr_query.client_addr)
+        
 
 if __name__ == '__main__':
     setParams()
+
+    # bind socket
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    sock.bind(('', 53))
+
+    x = Thread(target=consumer)
+    x.start()
+
     listener()
