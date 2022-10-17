@@ -34,14 +34,24 @@ class Query:
     def udp_style(self):
         # use message to create the dns object
         packet = DNS(self.client_message)
+        dns_id = packet.id
+
+        # only send requests
+        dns_opcode = packet.opcode
+        if dns_opcode != 0:
+            return 0
         
         #for now, lets just send the packet
         query_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         query_sock.sendto(self.client_message, (dns_server, 53))
 
         # revieve the repoy and send it to the client
+        query_sock.settimeout(1)
         msgFromServer, addr = query_sock.recvfrom(4096)
         packet = DNS(msgFromServer)
+        if dns_id != packet.id:
+            return 0
+
         return msgFromServer
 
 
@@ -127,6 +137,8 @@ def consumer():
             print("DOH NOT IMPLEMENTED")
         else:
             query_reply = curr_query.udp_style()
+            if query_reply == 0:
+                continue
             sock.sendto(query_reply, curr_query.client_addr)
         
 
@@ -135,7 +147,7 @@ if __name__ == '__main__':
 
     # bind socket
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    sock.bind(('', 53))
+    sock.bind(('0.0.0.0', 53))
 
     x = Thread(target=consumer)
     x.start()
