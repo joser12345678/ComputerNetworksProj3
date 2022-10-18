@@ -5,7 +5,9 @@ from scapy.all import DNS
 import re
 import socket
 import ipaddress
+import requests
 from threading import *
+import base64
 
 # globals
 enable_DoH = False
@@ -43,7 +45,7 @@ class Query:
         
         #for now, lets just send the packet
         query_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        query_sock.sendto(self.client_message, (dns_server, 53))
+        query_sock.connect((dns_server, 53))
 
         # revieve the repoy and send it to the client
         query_sock.settimeout(1)
@@ -54,6 +56,32 @@ class Query:
 
         return msgFromServer
 
+    def doh_style(self):
+        #create dns object
+        packet = DNS(self.client_message)
+        dns_id = packet.id
+
+        # only send requests
+        dns_opcode = packet.opcode
+        if dns_opcode != 0:
+            return 0
+
+        dns_url = 'https://' + dns_server + '/dns-query'
+        dns_params = {'dns' : base64.urlsafe_b64encode(self.client_message).decode("utf-8").rstrip("=")}
+        dns_headers = {'accept' : 'application/dns-message', 'content-type' : 'application/dns-message'}
+        r = requests.get(url=dns_url, params=dns_params, headers=dns_headers)
+        if r.status_code != 200:
+            print(r.url)
+            print(r.status_code)
+            print(r.headers)
+            return 0
+        
+
+        packet = DNS(r.content)
+        if dns_id != packet.id:
+            return 0
+
+        return r.content
 
 
 # sets up parser and parses options
@@ -134,12 +162,13 @@ def consumer():
 
         # now, we will fulfill this query
         if enable_DoH:
-            print("DOH NOT IMPLEMENTED")
+            query_reply = curr_query.doh_style()
         else:
             query_reply = curr_query.udp_style()
-            if query_reply == 0:
-                continue
-            sock.sendto(query_reply, curr_query.client_addr)
+        
+        if query_reply == 0:
+            continue
+        sock.sendto(query_reply, curr_query.client_addr)
         
 
 if __name__ == '__main__':
