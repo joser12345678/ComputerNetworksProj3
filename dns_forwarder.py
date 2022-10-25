@@ -46,10 +46,12 @@ class Query:
         #for now, lets just send the packet
         query_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         query_sock.connect((dns_server, 53))
+        query_sock.sendto(self.client_message, (dns_server, 53))
 
-        # revieve the repoy and send it to the client
+        # revieve the reply and send it to the client
         query_sock.settimeout(1)
         msgFromServer, addr = query_sock.recvfrom(4096)
+
         packet = DNS(msgFromServer)
         if dns_id != packet.id:
             return 0
@@ -69,19 +71,18 @@ class Query:
         dns_url = 'https://' + dns_server + '/dns-query'
         dns_params = {'dns' : base64.urlsafe_b64encode(self.client_message).decode("utf-8").rstrip("=")}
         dns_headers = {'accept' : 'application/dns-message', 'content-type' : 'application/dns-message'}
+        #print(dns_url)
+        #print(dns_params)
         r = requests.get(url=dns_url, params=dns_params, headers=dns_headers)
-        if r.status_code != 200:
-            print(r.url)
-            print(r.status_code)
-            print(r.headers)
-            return 0
-        
 
-        packet = DNS(r.content)
-        if dns_id != packet.id:
+        if r.status_code == 200:
+            packet = DNS(r.content)
+            #packet.show()
+            if dns_id != packet.id:
+                return 0
+            return r.content
+        else:
             return 0
-
-        return r.content
 
 
 # sets up parser and parses options
@@ -174,11 +175,21 @@ def consumer():
 if __name__ == '__main__':
     setParams()
 
-    # bind socket
-    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    sock.bind(('0.0.0.0', 53))
+    # bind socket to the external ip, get it by creating a socket 
+    # for google's server, and use the IP used to create that socket
+    #sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    s.connect(('8.8.8.8', 80))
+    ip_addr = s.getsockname()[0]
+    s.close()
+    print("Forwarder IP:" + ip_addr)
+    sock.bind((ip_addr, 53))
 
     x = Thread(target=consumer)
     x.start()
+    y = Thread(target=consumer)
+    y.start()
+    z = Thread(target=consumer)
+    z.start()
 
     listener()
