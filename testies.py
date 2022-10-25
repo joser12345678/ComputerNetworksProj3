@@ -1,7 +1,10 @@
-import dns_forwarder
+import socket
 
 
 
 if __name__ == '__main__':
-    q1 = dns_forwarder.Query('127.0.0.1', b'test')
-    print(q1.doh_style())
+    query_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    query_sock.settimeout(1)
+    query_sock.sendto(b'echo', ('8.8.8.8', 53))
+    msgFromServer, addr = query_sock.recvfrom(4096)
+    print(type(msgFromServer))

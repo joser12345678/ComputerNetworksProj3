@@ -45,18 +45,27 @@ class Query:
         
         #for now, lets just send the packet
         query_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        query_sock.connect((dns_server, 53))
+        #query_sock.connect((dns_server, 53))
         query_sock.sendto(self.client_message, (dns_server, 53))
 
         # revieve the reply and send it to the client
         query_sock.settimeout(1)
-        msgFromServer, addr = query_sock.recvfrom(4096)
-
-        packet = DNS(msgFromServer)
-        if dns_id != packet.id:
+        num_tries = 0
+        while num_tries < 4:
+            try:
+                msgFromServer, addr = query_sock.recvfrom(4096)
+                break
+            except TimeoutError:
+                num_tries = num_tries + 1
+                continue
+        
+        if num_tries < 4:
+            packet = DNS(msgFromServer)
+            if dns_id != packet.id:
+                return 0
+            return msgFromServer
+        else:
             return 0
-
-        return msgFromServer
 
     def doh_style(self):
         #create dns object
@@ -73,9 +82,17 @@ class Query:
         dns_headers = {'accept' : 'application/dns-message', 'content-type' : 'application/dns-message'}
         #print(dns_url)
         #print(dns_params)
-        r = requests.get(url=dns_url, params=dns_params, headers=dns_headers)
 
-        if r.status_code == 200:
+        num_tries = 0
+        while num_tries < 4:
+            try:
+                r = requests.get(url=dns_url, params=dns_params, headers=dns_headers, timeout= 1)
+                break
+            except TimeoutError:
+                num_tries = num_tries + 1
+                continue
+
+        if num_tries < 4 and r.status_code == 200:
             packet = DNS(r.content)
             #packet.show()
             if dns_id != packet.id:
@@ -108,6 +125,12 @@ def setParams():
     if args.doh_server:
         enable_DoH = True
         dns_server = args.doh_server
+        # check ip to make sure it is valid
+        try:
+            ipaddress.ip_address(dns_server) 
+        except ValueError:
+            print("Invalid DNS server IP")
+            exit()
     elif args.doh:
         enable_DoH = True
 
@@ -182,7 +205,7 @@ if __name__ == '__main__':
     s.connect(('8.8.8.8', 80))
     ip_addr = s.getsockname()[0]
     s.close()
-    print("Forwarder IP:" + ip_addr)
+    print("Forwarder IP: " + ip_addr)
     sock.bind((ip_addr, 53))
 
     x = Thread(target=consumer)
