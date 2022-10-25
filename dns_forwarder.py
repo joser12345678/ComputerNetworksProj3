@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import argparse
 from multiprocessing import Semaphore
+from struct import pack
 from scapy.all import DNS
 import re
 import socket
@@ -8,6 +9,7 @@ import ipaddress
 import requests
 from threading import *
 import base64
+from os.path import exists
 
 # globals
 enable_DoH = False
@@ -17,12 +19,15 @@ dns_server = "8.8.8.8"
 query_list = list()
 
 # producer consumer synchronization
-sem_empty = Semaphore(10)
+sem_empty = Semaphore(100)
 sem_full = Semaphore(0)
 mutex = Lock()
 
 # main socket mutex for syncronization
 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+
+# dictionary for blocking sites
+deny_list = {}
 
 # query class that holds information for each query.
 class Query:
@@ -36,6 +41,9 @@ class Query:
     def udp_style(self):
         # use message to create the dns object
         packet = DNS(self.client_message)
+        if str(packet.qd.qname.decode()) in deny_list:
+            print('deny: ' + packet.qd.qname.decode())
+            return 0
         dns_id = packet.id
 
         # only send requests
@@ -55,7 +63,7 @@ class Query:
             try:
                 msgFromServer, addr = query_sock.recvfrom(4096)
                 break
-            except TimeoutError:
+            except Exception as e:
                 num_tries = num_tries + 1
                 continue
         
@@ -70,6 +78,10 @@ class Query:
     def doh_style(self):
         #create dns object
         packet = DNS(self.client_message)
+        packet = DNS(self.client_message)
+        if str(packet.qd.qname.decode()) in deny_list:
+            print('deny: ' + packet.qd.qname.decode())
+            return 0
         dns_id = packet.id
 
         # only send requests
@@ -88,7 +100,7 @@ class Query:
             try:
                 r = requests.get(url=dns_url, params=dns_params, headers=dns_headers, timeout= 1)
                 break
-            except TimeoutError:
+            except Exception as e:
                 num_tries = num_tries + 1
                 continue
 
@@ -101,6 +113,22 @@ class Query:
         else:
             return 0
 
+# reads in the deny list specified by the user
+def read_in_denylist():
+    #first check if file exists
+    if exists(deny_list_file):
+        with open(deny_list_file, "r") as f:
+            deny_str = f.read()
+        deny_arr = deny_str.split('\n')
+
+        # simply add entries to the dict.
+        # this is so we can access entries quickly
+        for i in deny_arr:
+            deny_list[i + '.'] = True
+            print(i)
+    else:
+        print("Deny List doesn't exist, terminating....")
+        exit()
 
 # sets up parser and parses options
 # makes sure the prefix is specified
@@ -150,6 +178,7 @@ def setParams():
         log_file = args.l
     if args.f:
         deny_list_file = args.f
+        read_in_denylist()
 
     print("DoH enabled: " + str(enable_DoH))
     print("Deny list file: " + deny_list_file)
@@ -193,7 +222,6 @@ def consumer():
         if query_reply == 0:
             continue
         sock.sendto(query_reply, curr_query.client_addr)
-        
 
 if __name__ == '__main__':
     setParams()
@@ -208,11 +236,10 @@ if __name__ == '__main__':
     print("Forwarder IP: " + ip_addr)
     sock.bind((ip_addr, 53))
 
-    x = Thread(target=consumer)
-    x.start()
-    y = Thread(target=consumer)
-    y.start()
-    z = Thread(target=consumer)
-    z.start()
+    thread_arr = [ 0 for i in range(10)]
+    for i in range(0, 10):
+        x = Thread(target=consumer)
+        x.start()
+        thread_arr[i] = x
 
     listener()
