@@ -33,26 +33,30 @@ deny_list = {}
 file_mutex = Lock()
 log_file_out = 0
 
+def write_log(q_string, qtype, acc_or_deny):
+    file_mutex.acquire()
+    log_file_out.write(q_string[:-1] + " " + qtype + " " + acc_or_deny + "\n")
+    log_file_out.flush()
+    file_mutex.release()
+
 # query class that holds information for each query.
 class Query:
     def __init__(self, address, message):
         self.client_addr = address      #store client info
         self.client_message = message   # store the client message
         self.response = ""      # store string of the response
-        print("Query Created. CLient Info: " + str(self.client_addr))
 
     # parses and checks udp packet, returns the reply contents if successful
     def udp_style(self):
         # use message to create the dns object
         packet = DNS(self.client_message)
         q_string = str(packet.qd.qname.decode())
+        packet_type = packet.qd.get_field('qtype').i2repr(packet.qd, packet.qd.qtype)
         if q_string in deny_list:
-            file_mutex.acquire()
-            log_file_out.write(q_string[:-1] + " " + str(packet.qd.qtype) + " DENY\n")
-            log_file_out.flush()
-            file_mutex.release()
+            write_log(q_string, packet_type, "DENY")
             return 0
         dns_id = packet.id
+        write_log(q_string, packet_type, "ALLOW")
 
         # only send requests
         dns_opcode = packet.opcode
@@ -86,10 +90,13 @@ class Query:
     def doh_style(self):
         #create dns object
         packet = DNS(self.client_message)
-        if str(packet.qd.qname.decode()) in deny_list:
-            print('deny: ' + packet.qd.qname.decode())
+        q_string = str(packet.qd.qname.decode())
+        packet_type = packet.qd.get_field('qtype').i2repr(packet.qd, packet.qd.qtype)
+        if q_string in deny_list:
+            write_log(q_string, packet_type, "DENY")
             return 0
         dns_id = packet.id
+        write_log(q_string, packet_type, "ALLOW")
 
         # only send requests
         dns_opcode = packet.opcode
