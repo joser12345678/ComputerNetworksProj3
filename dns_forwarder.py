@@ -29,6 +29,10 @@ sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 # dictionary for blocking sites
 deny_list = {}
 
+# lock for the log file descriptor
+file_mutex = Lock()
+log_file_out = 0
+
 # query class that holds information for each query.
 class Query:
     def __init__(self, address, message):
@@ -41,8 +45,12 @@ class Query:
     def udp_style(self):
         # use message to create the dns object
         packet = DNS(self.client_message)
-        if str(packet.qd.qname.decode()) in deny_list:
-            print('deny: ' + packet.qd.qname.decode())
+        q_string = str(packet.qd.qname.decode())
+        if q_string in deny_list:
+            file_mutex.acquire()
+            log_file_out.write(q_string[:-1] + " " + str(packet.qd.qtype) + " DENY\n")
+            log_file_out.flush()
+            file_mutex.release()
             return 0
         dns_id = packet.id
 
@@ -77,7 +85,6 @@ class Query:
 
     def doh_style(self):
         #create dns object
-        packet = DNS(self.client_message)
         packet = DNS(self.client_message)
         if str(packet.qd.qname.decode()) in deny_list:
             print('deny: ' + packet.qd.qname.decode())
@@ -200,8 +207,14 @@ def listener():
 
         mutex.release()
         sem_full.release()
-        
 
+# creates an nxdomain reply  
+def create_nxdomain_reply(query):
+    reply = DNS(query.client_message)
+    reply.rcode = 3
+    reply.qr = 1
+    return reply.build()
+    
 
 # consumer function that will perform all queries on behalf of the client
 def consumer():
@@ -220,11 +233,12 @@ def consumer():
             query_reply = curr_query.udp_style()
         
         if query_reply == 0:
-            continue
+            query_reply = create_nxdomain_reply(curr_query)
         sock.sendto(query_reply, curr_query.client_addr)
 
 if __name__ == '__main__':
     setParams()
+    log_file_out = open(log_file, "w")
 
     # bind socket to the external ip, get it by creating a socket 
     # for google's server, and use the IP used to create that socket
