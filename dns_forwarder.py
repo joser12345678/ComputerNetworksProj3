@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 import argparse
 from multiprocessing import Semaphore
-from struct import pack
 from scapy.all import DNS
 import re
 import socket
