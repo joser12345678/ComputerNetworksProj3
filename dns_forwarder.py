@@ -34,6 +34,8 @@ file_mutex = Lock()
 log_file_out = 0
 
 def write_log(q_string, qtype, acc_or_deny):
+    if(log_file == "NOT SPECIFIED"):
+        return
     file_mutex.acquire()
     log_file_out.write(q_string[:-1] + " " + qtype + " " + acc_or_deny + "\n")
     log_file_out.flush()
@@ -139,7 +141,7 @@ def read_in_denylist():
         # this is so we can access entries quickly
         for i in deny_arr:
             deny_list[i + '.'] = True
-            print(i)
+            #print(i)
     else:
         print("Deny List doesn't exist, terminating....")
         exit()
@@ -245,7 +247,8 @@ def consumer():
 
 if __name__ == '__main__':
     setParams()
-    log_file_out = open(log_file, "w")
+    if log_file != "NOT SPECIFIED":
+        log_file_out = open(log_file, "w")
 
     # bind socket to the external ip, get it by creating a socket 
     # for google's server, and use the IP used to create that socket
